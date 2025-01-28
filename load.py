@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     output_file = "output_data"     # Output file name without extension
     start_time = time.monotonic()
-    key = "EEG F8"
+    key = "EEG P4"
     # Load data and create channel-to-data dictionary
     channel_data_dict_before = load(input_file_before)
     channel_data_dict_after = load(input_file_after)
@@ -87,6 +87,7 @@ if __name__ == "__main__":
     compressed_after=compress_signal(signal_after)
     compressed_before=compress_signal(signal_before)
     compressed_before=compressed_before[0:30999]
+    signal_before=signal_before[0:30999]
     #print(len(channel_data_dict_after[key]))
     #printer(channel_data_dict_before,"EEG Fp1")
     #printer(channel_data_dict_after,"EEG Fp1")
@@ -103,8 +104,8 @@ if __name__ == "__main__":
         print(f"peaks are after:{np.max(compressed_after)}V and before:{np.max(compressed_before)}V")
         
     plt.figure(figsize=(10, 6))
-    plt.plot(compressed_before, label="Before (Compressed)", color="green", alpha=0.9)
-    plt.plot(compressed_after[0:30999], label="After (Compressed)", color="orange", alpha=0.7)
+    plt.plot(signal_before, label="Before (Compressed)", color="green", alpha=0.9)
+    plt.plot(signal_after[0:30999], label="After (Compressed)", color="orange", alpha=0.7)
     plt.title(f"Compressed Comparison for Channel: {key}")
     plt.xlabel("Samples (Compressed)")
     plt.ylabel("Amplitude")
