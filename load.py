@@ -8,17 +8,106 @@ import math
 np.set_printoptions(threshold=sys.maxsize)
 
 def load(file):
-    # Load EDF file and get raw data
     data = mne.io.read_raw_edf(file, preload=True)
-    raw_data = data.get_data()  # Get raw signal as a numpy array
-    channels = data.ch_names   # Get channel names
-    raw_data = np.array(raw_data)
-    print("Channels loaded:", channels)
-    
-    # Map channel names to their respective data
+    raw_data = data.get_data()
+    channels = data.ch_names
+    sfreq = data.info['sfreq']
     channel_data_dict = {channels[i]: raw_data[i] for i in range(len(channels))}
+    print(f"Channels loaded: {channels}, Sampling frequency: {sfreq} Hz")
+    return channel_data_dict, sfreq
+
+def compute_fft(signal_before, signal_after, sfreq):
+    min_len = min(len(signal_before), len(signal_after))
+    before_trimmed = signal_before[:min_len]
+    after_trimmed = signal_after[:min_len]
     
-    return channel_data_dict
+    before_detrended = before_trimmed - np.mean(before_trimmed)
+    after_detrended = after_trimmed - np.mean(after_trimmed)
+    
+    window = np.hanning(min_len)
+    fft_before = np.fft.rfft(before_detrended * window) / np.sum(window)
+    fft_after = np.fft.rfft(after_detrended * window) / np.sum(window)
+    
+    return (np.fft.rfftfreq(min_len, 1/sfreq), 
+            np.abs(fft_before), 
+            np.abs(fft_after))
+
+def plot_all_comparisons(channel_data_before, channel_data_after, sfreq):
+    common_channels = sorted(set(channel_data_before.keys()) & set(channel_data_after.keys()))
+    
+    if not common_channels:
+        print("No common channels found between before/after data!")
+        return
+    
+    n_channels = len(common_channels)
+    n_cols = 2
+    n_rows = math.ceil(n_channels / n_cols)
+    
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
+    axs = axs.flatten() if n_channels > 1 else [axs]
+    
+    for idx, channel in enumerate(common_channels):
+        freqs, mag_before, mag_after = compute_fft(
+            channel_data_before[channel],
+            channel_data_after[channel],
+            sfreq
+        )
+        
+        # Plot with distinct styles
+        axs[idx].plot(freqs, mag_before, color='blue', linestyle='-', linewidth=1.5, alpha=0.8, label='Before')
+        axs[idx].plot(freqs, mag_after, color='red', linestyle='-.', linewidth=1.5, alpha=0.8, label='After')
+        
+        axs[idx].set_title(f'{channel} FFT Comparison', fontsize=12)
+        axs[idx].set_xlabel('Frequency (Hz)', fontsize=10)
+        axs[idx].set_ylabel('Normalized Magnitude', fontsize=10)
+        axs[idx].grid(True, linestyle=':', alpha=0.7)
+        axs[idx].set_xlim(0, 50)
+        axs[idx].legend(fontsize=9)
+        axs[idx].tick_params(axis='both', which='major', labelsize=8)
+    
+    # Hide empty subplots
+    for j in range(n_channels, len(axs)):
+        axs[j].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+    
+def plot_fft(data_dict_before, data_dict_after, sfreq, title):
+    # Trim signals to the same length (use the shorter one)
+    min_len = min(len(data_dict_before), len(data_dict_after))
+    before_trimmed = data_dict_before[:min_len]
+    after_trimmed = data_dict_after[:min_len]
+    
+    # Detrend
+    before_detrended = before_trimmed - np.mean(before_trimmed)
+    after_detrended = after_trimmed - np.mean(after_trimmed)
+    
+    # Apply Hanning window
+    window = np.hanning(min_len)
+    signal_windowed_before = before_detrended * window
+    signal_windowed_after = after_detrended * window
+    
+    # Compute FFT and normalize by window sum
+    fft_before = np.fft.rfft(signal_windowed_before) / np.sum(window)
+    fft_after = np.fft.rfft(signal_windowed_after) / np.sum(window)
+    
+    magnitude_before = np.abs(fft_before)
+    magnitude_after = np.abs(fft_after)
+    
+    # Frequency bins
+    freqs = np.fft.rfftfreq(min_len, 1/sfreq)
+    
+    # Plot
+    plt.figure()
+    plt.plot(freqs, magnitude_after, label="After", color="green", alpha=0.7)
+    plt.plot(freqs, magnitude_before, label="Before", color="orange", alpha=0.7)
+    plt.title(title)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Normalized Magnitude')
+    plt.legend()
+    plt.grid()
+    plt.xlim(0, 50)
+    plt.show()
 
 def write(file, data):
     with open(f"{file}.txt", "w") as f:
@@ -41,6 +130,7 @@ def printer(data_dict, channel_name):
     plt.ylabel("Amplitude")
     plt.grid()
     plt.show()
+    
 def printer_comparison(data_dict_before, data_dict_after, channel_name):
     # Check if the channel exists in both dictionaries
     if channel_name not in data_dict_before:
@@ -72,47 +162,25 @@ def compress_signal(signal, window_size=25):
     return compressed_signal
 
 if __name__ == "__main__":
-    # Example usage
-    input_file_before = "Subject27_1.edf"  # Replace with your actual file path
-    input_file_after = "Subject27_2.edf"  # Replace with your actual file path
+    input_file_before = "Subject23_1.edf"     #18 dobar
+    input_file_after =  "Subject23_2.edf"    #18
+    key = "EEG A2-A1"
 
-    output_file = "output_data"     # Output file name without extension
-    start_time = time.monotonic()
-    key = "EEG P4"
-    # Load data and create channel-to-data dictionary
-    channel_data_dict_before = load(input_file_before)
-    channel_data_dict_after = load(input_file_after)
-    signal_before = channel_data_dict_before[key]
-    signal_after = channel_data_dict_after[key]
-    compressed_after=compress_signal(signal_after)
-    compressed_before=compress_signal(signal_before)
-    compressed_before=compressed_before[0:30999]
-    signal_before=signal_before[0:30999]
-    #print(len(channel_data_dict_after[key]))
-    #printer(channel_data_dict_before,"EEG Fp1")
-    #printer(channel_data_dict_after,"EEG Fp1")
-    # Example: Plot data for each channel
-    #printer_comparison(channel_data_dict_before, channel_data_dict_after, "EEG A2-A1")
-    #printer_comparison(compressed_after, compressed_before, "EEG Fp2")
-    avg_after=np.average(compressed_after)
-    avg_before=np.average(compressed_before)
-    if(avg_after>avg_before):
-        print(f"after is more active with {avg_after}V rather than {avg_before}V")
-        print(f"peaks are after:{np.max(compressed_after)}V and before:{np.max(compressed_before)}V")
-    else:
-        print(f"before is more active with {avg_before}V rather than {avg_after}V")
-        print(f"peaks are after:{np.max(compressed_after)}V and before:{np.max(compressed_before)}V")
-        
-    plt.figure(figsize=(10, 6))
-    plt.plot(signal_before, label="Before (Compressed)", color="green", alpha=0.9)
-    plt.plot(signal_after[0:30999], label="After (Compressed)", color="orange", alpha=0.7)
-    plt.title(f"Compressed Comparison for Channel: {key}")
-    plt.xlabel("Samples (Compressed)")
-    plt.ylabel("Amplitude")
-    plt.legend()
-    plt.grid()
-    plt.show()
+    # Load data and sampling frequency
+    channel_data_before, sfreq_before = load(input_file_before)
+    channel_data_after, sfreq_after = load(input_file_after)
 
+    # Ensure matching sampling frequencies
+    if sfreq_before != sfreq_after:
+        print("Warning: Sampling frequencies differ. Proceed with caution.")
+    sfreq = sfreq_before  # Use the first file's sfreq
 
-    end_time = time.monotonic()
-    print(f"Execution time: {end_time - start_time} seconds")
+    # Extract signals
+    signal_before = channel_data_before[key]
+    signal_after = channel_data_after[key]
+
+    # Plot FFT for each signal
+    plot_all_comparisons(channel_data_before, channel_data_after, sfreq)
+
+    #plot_fft(signal_before,signal_after, sfreq, f'FFT of {key} (Before)')
+    #plot_fft(signal_after, sfreq, f'FFT of {key} (After)')
